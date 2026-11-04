@@ -21,7 +21,7 @@ export default function App(){
  const [selectedTeam,setSelectedTeam]=useState("");const [selectedPerson,setSelectedPerson]=useState("");
  const [newName,setNewName]=useState("");const [newEmail,setNewEmail]=useState("");const [newCode,setNewCode]=useState("");const [newPassword,setNewPassword]=useState("");const [newRole,setNewRole]=useState<"employee"|"team_lead">("employee");
  const [todayCount,setTodayCount]=useState(0);
- const [shiftDate,setShiftDate]=useState(new Date().toLocaleDateString("en-CA"));const [shiftStart,setShiftStart]=useState("09:00");const [shiftEnd,setShiftEnd]=useState("18:00");const [shiftLocation,setShiftLocation]=useState("");const [selectedShiftPerson,setSelectedShiftPerson]=useState("");const [teamShifts,setTeamShifts]=useState<any[]>([]);
+ const [shiftDate,setShiftDate]=useState(new Date().toLocaleDateString("en-CA"));const [shiftStart,setShiftStart]=useState("09:00");const [shiftEnd,setShiftEnd]=useState("18:00");const [shiftLocation,setShiftLocation]=useState("");const [selectedShiftPerson,setSelectedShiftPerson]=useState("");const [selectedShiftPeople,setSelectedShiftPeople]=useState<string[]>([]);const [selectedShiftLeader,setSelectedShiftLeader]=useState("");const [shiftGroupName,setShiftGroupName]=useState("Shift 1");const [teamShifts,setTeamShifts]=useState<any[]>([]);
 
  useEffect(()=>{(async()=>{if(!supabase)return;const {data}=await supabase.auth.getSession();if(data.session)await loadProfile(data.session.user.id);})();},[]);
  async function loadProfile(id:string){
@@ -111,20 +111,36 @@ export default function App(){
  }
  async function loadTeamShifts(teamId:string){
   if(!supabase||!teamId){setTeamShifts([]);return;}
-  const ids=people.filter(p=>p.team_id===teamId&&p.active).map(p=>p.id);
+  const {data:groups,error}=await supabase.from("shift_groups").select("*").eq("team_id",teamId).order("shift_date",{ascending:true}).order("start_time",{ascending:true});
+  if(error){Alert.alert("Could not load shift groups",error.message);return;}
+  const ids=(groups||[]).map(g=>g.id);
   if(!ids.length){setTeamShifts([]);return;}
-  const {data,error}=await supabase.from("shifts").select("*").in("employee_id",ids).order("shift_date",{ascending:true});
-  if(error)Alert.alert("Could not load shifts",error.message);else setTeamShifts(data||[]);
+  const {data:assignments,error:assignmentError}=await supabase.from("shifts").select("employee_id,shift_group_id").in("shift_group_id",ids);
+  if(assignmentError){Alert.alert("Could not load shift members",assignmentError.message);return;}
+  setTeamShifts((groups||[]).map(g=>({...g,member_ids:(assignments||[]).filter(x=>x.shift_group_id===g.id).map(x=>x.employee_id)})));
  }
  async function assignShift(){
   const teamId=profile?.role==="manager"?selectedTeam:profile?.team_id;
-  if(!supabase||!profile||!teamId||!selectedShiftPerson){Alert.alert("Select employee","Choose a team member first.");return;}
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)||!/^\d{2}:\d{2}$/.test(shiftStart)||!/^\d{2}:\d{2}$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
-  if(shiftEnd<=shiftStart){Alert.alert("Invalid shift time","End time must be later than start time on the same day.");return;}
+  const leaderId=profile?.role==="team_lead"?profile.id:selectedShiftLeader;
+  if(!supabase||!profile||!teamId||!leaderId){Alert.alert("Select a Team Leader","Choose a Team Leader for this shift.");return;}
+  const members=[...new Set(selectedShiftPeople)].filter(id=>id!==leaderId);
+  const eligible=people.filter(p=>p.team_id===teamId&&p.active);
+  if(!eligible.some(p=>p.id===leaderId&&p.role==="team_lead")){Alert.alert("Invalid Team Leader","Choose an active Team Leader from this team.");return;}
+  if(!members.length||members.some(id=>!eligible.some(p=>p.id===id&&p.role==="employee"))){Alert.alert("Select employees","Select at least one active employee from this team.");return;}
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)||!/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(shiftStart)||!/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
+  if(shiftEnd<=shiftStart){Alert.alert("Invalid shift time","End time must be later than start time.");return;}
+  if(!shiftGroupName.trim()){Alert.alert("Shift name required","Enter a shift name.");return;}
   setBusy(true);
-  const {error}=await supabase.from("shifts").insert({employee_id:selectedShiftPerson,shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,created_by:profile.id});
-  if(error)Alert.alert("Shift assignment failed",error.message);else{Alert.alert("Shift assigned","The team member can now see and acknowledge this shift.");await loadTeamShifts(teamId);}
-  setBusy(false);
+  try{
+   const {data:group,error:groupError}=await supabase.from("shift_groups").insert({team_id:teamId,shift_name:shiftGroupName.trim(),shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,team_lead_id:leaderId,created_by:profile.id}).select("*").single();
+   if(groupError)throw groupError;
+   const assignments=[leaderId,...members].map(employee_id=>({employee_id,shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,created_by:profile.id,shift_group_id:group.id}));
+   const {error:insertError}=await supabase.from("shifts").insert(assignments);
+   if(insertError){await supabase.from("shift_groups").delete().eq("id",group.id);throw insertError;}
+   Alert.alert("Shift group created",shiftGroupName+" assigned to "+assignments.length+" people.");
+   setSelectedShiftPeople([]);setShiftGroupName("Shift "+(teamShifts.length+2));await loadTeamShifts(teamId);
+  }catch(error:any){Alert.alert("Shift assignment failed",error?.message||String(error));}
+  finally{setBusy(false);}
  }
  async function signOut(){await supabase?.auth.signOut();setProfile(null);setRows([]);setShift(null);setPage("home");}
  const button=(label:string,fn:()=>void,secondary=false)=><TouchableOpacity style={[s.btn,secondary&&s.secondary,busy&&{opacity:.55}]} onPress={fn} disabled={busy}><Text style={[s.btnText,secondary&&s.secondaryText]}>{busy?"PLEASE WAIT":label}</Text></TouchableOpacity>;
@@ -143,16 +159,19 @@ export default function App(){
   {page==="team"&&<><View style={s.card}><Text style={s.heading}>{profile.role==="manager"?"Organisation teams":"Your team"}</Text>
   {profile.role==="manager"?teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>{setSelectedTeam(t.id);setSelectedShiftPerson("");loadTeamShifts(t.id);}}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>):<Text style={s.body}>{teams.find(t=>t.id===profile.team_id)?.name||"No team assigned"}</Text>}
   <Text style={s.note}>Team members and shift schedules</Text>
-  {teamMembers.map(p=><TouchableOpacity key={p.id} style={[s.choice,selectedShiftPerson===p.id&&s.choiceActive]} onPress={()=>setSelectedShiftPerson(p.id)}><Text style={s.body}>{selectedShiftPerson===p.id?"✓ ":""}{p.full_name}</Text><Text style={s.note}>{p.role.replace("_"," ")} {p.employee_code?"• "+p.employee_code:""}</Text></TouchableOpacity>)}
+  {teamMembers.map(p=><TouchableOpacity key={p.id} style={[s.choice,selectedShiftPeople.includes(p.id)&&s.choiceActive]} onPress={()=>setSelectedShiftPeople(old=>old.includes(p.id)?old.filter(id=>id!==p.id):[...old,p.id])}><Text style={s.body}>{selectedShiftPeople.includes(p.id)?"✓ ":"□ "}{p.full_name}</Text><Text style={s.note}>{p.role.replace("_"," ")} {p.employee_code?"• "+p.employee_code:""}</Text></TouchableOpacity>)}
   </View>
-  {(profile.role==="manager"||profile.role==="team_lead")&&<View style={s.card}><Text style={s.heading}>Assign a shift</Text><Text style={s.note}>Select a team member above, then enter their shift details.</Text>
+  {(profile.role==="manager"||profile.role==="team_lead")&&<View style={s.card}><Text style={s.heading}>Create a shift group</Text><Text style={s.note}>Select multiple employees above. The Team Leader will also receive this shift.</Text>
+  <Text style={s.label}>Shift name</Text><TextInput style={s.input} placeholder="Shift 1" value={shiftGroupName} onChangeText={setShiftGroupName}/>
+  {profile.role==="manager"?<><Text style={s.label}>Team Leader</Text>{teamMembers.filter(p=>p.role==="team_lead").map(p=><TouchableOpacity key={p.id} style={[s.choice,selectedShiftLeader===p.id&&s.choiceActive]} onPress={()=>setSelectedShiftLeader(p.id)}><Text style={s.body}>{selectedShiftLeader===p.id?"✓ ":""}{p.full_name}</Text></TouchableOpacity>)}</>:<Text style={s.note}>Team Leader: {profile.full_name}</Text>}
   <Text style={s.label}>Shift date (YYYY-MM-DD)</Text><TextInput style={s.input} placeholder="2026-11-05" value={shiftDate} onChangeText={setShiftDate}/>
   <Text style={s.label}>Start time (24-hour HH:MM)</Text><TextInput style={s.input} placeholder="09:00" value={shiftStart} onChangeText={setShiftStart}/>
   <Text style={s.label}>End time (24-hour HH:MM)</Text><TextInput style={s.input} placeholder="18:00" value={shiftEnd} onChangeText={setShiftEnd}/>
   <Text style={s.label}>Work location (optional)</Text><TextInput style={s.input} placeholder="Office / branch / site" value={shiftLocation} onChangeText={setShiftLocation}/>
-  {button("Assign shift to selected member",assignShift,!selectedShiftPerson||!(profile.role==="manager"?selectedTeam:profile.team_id))}
+  <Text style={s.note}>Selected employees: {selectedShiftPeople.filter(id=>id!==(profile.role==="team_lead"?profile.id:selectedShiftLeader)).length}</Text>
+  {button("Assign shift to selected group",assignShift,!selectedShiftPeople.length||(profile.role==="manager"&&!selectedShiftLeader))}
   </View>}
-  <View style={s.card}><Text style={s.heading}>Scheduled shifts</Text>{teamShifts.length?teamShifts.map(sh=><View key={sh.id} style={s.person}><Text style={s.personName}>{people.find(p=>p.id===sh.employee_id)?.full_name||"Team member"}</Text><Text style={s.note}>{sh.shift_date} • {String(sh.start_time).slice(0,5)}–{String(sh.end_time).slice(0,5)}{sh.work_location_name?" • "+sh.work_location_name:""}</Text></View>):<Text style={s.note}>No shifts loaded yet. Select a team to view its schedule.</Text>}</View></>}
+  <View style={s.card}><Text style={s.heading}>Scheduled shift groups</Text>{teamShifts.length?teamShifts.map(group=><View key={group.id} style={s.person}><Text style={s.personName}>{group.shift_name} • {group.shift_date}</Text><Text style={s.note}>{String(group.start_time).slice(0,5)}–{String(group.end_time).slice(0,5)}{group.work_location_name?" • "+group.work_location_name:""}</Text><Text style={s.body}>Team Leader: {people.find(p=>p.id===group.team_lead_id)?.full_name||"Unknown"}</Text><Text style={s.note}>Members: {group.member_ids.map(id=>people.find(p=>p.id===id)?.full_name||"Unknown").join(", ")}</Text></View>):<Text style={s.note}>No shift groups yet. Select a team to view its schedule.</Text>}</View></>}
   {page==="admin"&&profile.role==="manager"&&<><View style={s.card}><Text style={s.heading}>Organisation capacity</Text><Text style={s.metric}>{activeEmployees} / 25</Text><Text style={s.note}>Active employees</Text><Text style={s.metric}>{activeLeads} / 5</Text><Text style={s.note}>Active Team Leaders</Text><Text style={s.body}>{teams.length} / 5 teams created</Text></View>
   <View style={s.card}><Text style={s.heading}>Create a team</Text><TextInput style={s.input} placeholder="Example: Sales Team" value={teamName} onChangeText={setTeamName}/>{button("Create team",createTeam)}</View>
   <View style={s.card}><Text style={s.heading}>Select a team</Text>{teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>setSelectedTeam(t.id)}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>)}</View>
