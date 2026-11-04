@@ -127,7 +127,7 @@ export default function App(){
   const eligible=people.filter(p=>p.team_id===teamId&&p.active);
   if(!eligible.some(p=>p.id===leaderId&&p.role==="team_lead")){Alert.alert("Invalid Team Leader","Choose an active Team Leader from this team.");return;}
   if(!members.length||members.some(id=>!eligible.some(p=>p.id===id&&p.role==="employee"))){Alert.alert("Select employees","Select at least one active employee from this team.");return;}
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)||!/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(shiftStart)||!/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)||!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(shiftStart)||!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
   if(shiftEnd<=shiftStart){Alert.alert("Invalid shift time","End time must be later than start time.");return;}
   if(!shiftGroupName.trim()){Alert.alert("Shift name required","Enter a shift name.");return;}
   setBusy(true);
