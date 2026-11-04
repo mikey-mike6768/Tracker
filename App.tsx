@@ -20,7 +20,8 @@ export default function App(){
  const [people,setPeople]=useState<Profile[]>([]);const [teamName,setTeamName]=useState("");
  const [selectedTeam,setSelectedTeam]=useState("");const [selectedPerson,setSelectedPerson]=useState("");
  const [newName,setNewName]=useState("");const [newEmail,setNewEmail]=useState("");const [newCode,setNewCode]=useState("");const [newPassword,setNewPassword]=useState("");const [newRole,setNewRole]=useState<"employee"|"team_lead">("employee");
- const [todayCount,setTodayCount]=useState(0);\n const [shiftDate,setShiftDate]=useState(new Date().toLocaleDateString("en-CA"));const [shiftStart,setShiftStart]=useState("09:00");const [shiftEnd,setShiftEnd]=useState("18:00");const [shiftLocation,setShiftLocation]=useState("");const [selectedShiftPerson,setSelectedShiftPerson]=useState("");const [teamShifts,setTeamShifts]=useState<any[]>([]);
+ const [todayCount,setTodayCount]=useState(0);
+ const [shiftDate,setShiftDate]=useState(new Date().toLocaleDateString("en-CA"));const [shiftStart,setShiftStart]=useState("09:00");const [shiftEnd,setShiftEnd]=useState("18:00");const [shiftLocation,setShiftLocation]=useState("");const [selectedShiftPerson,setSelectedShiftPerson]=useState("");const [teamShifts,setTeamShifts]=useState<any[]>([]);
 
  useEffect(()=>{(async()=>{if(!supabase)return;const {data}=await supabase.auth.getSession();if(data.session)await loadProfile(data.session.user.id);})();},[]);
  async function loadProfile(id:string){
