@@ -61,6 +61,7 @@ Added in migration `teamtrack_role_based_operations`:
 - leave_requests (dates, reason, pending/approved/rejected, reviewer)
 - announcements (global or team-specific)
 - attendance_corrections (employee request, reviewer, audit trail)
+- shift_change_requests (requested shift changes, reviewer, approval status)
 
 RLS is enabled on the added tables. Manager access is organisation-wide. Team Leader policies scope operational access through the signed-in profile's team. Employees can create their own leave/correction requests and read their own records. Storage remains private.
 
@@ -84,5 +85,6 @@ RLS is enabled on the added tables. Manager access is organisation-wide. Team Le
 ## Current state / known gaps
 - Manager Auth user and profile exist.
 - New operational tables and baseline RLS policies have been applied and table existence/RLS enablement verified.
+- Supabase Security Advisor still reports two callable SECURITY DEFINER helper functions and leaked-password protection disabled; resolve these before production rollout.
 - Team, Team Leader, employee provisioning UI, approval workflows, geofence enforcement, secure photo viewer, notification delivery, Excel exports, and dashboard screens are not yet fully implemented.
 - The existing APK is an MVP. Rebuild after the next UI implementation phase.
