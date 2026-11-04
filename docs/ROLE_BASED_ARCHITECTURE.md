@@ -1,9 +1,9 @@
 # TeamTrack role-based architecture
 
 ## Product decisions
-- Initial operating size: up to 8 employees.
+- Initial operating size: up to 25 employees.
 - Roles: Manager, Team Leader, Employee.
-- Plan for up to 3 Team Leaders, each assigned to a team. The three leader accounts and teams are not created until their real Auth users are provisioned.
+- Plan for up to 5 Team Leaders, each assigned to a team. The three leader accounts and teams are not created until their real Auth users are provisioned.
 - Manager dashboard: Android mobile app (no separate web dashboard in this phase).
 - Team Leaders receive the same operational modules as Manager, but every list, action, export, location, and photo is restricted to their assigned team.
 - Employees can access only their own profile, shifts, attendance, leave requests, and announcements relevant to their team.
@@ -67,7 +67,7 @@ RLS is enabled on the added tables. Manager access is organisation-wide. Team Le
 
 ## Implementation phases
 1. Role-aware navigation and dashboard overview cards.
-2. Manager employee/team administration and provisioning flow for up to 3 Team Leaders.
+2. Manager employee/team administration and provisioning flow for up to 5 Team Leaders and 25 employees.
 3. Shift calendar, assignment, employee shift-change requests and approval workflow.
 4. Live attendance, GPS/geofence verification, and private photo viewer.
 5. Leave request and approval workflow; announcements and notifications.
