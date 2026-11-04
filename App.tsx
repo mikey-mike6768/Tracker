@@ -135,7 +135,7 @@ export default function App(){
    const {data:group,error:groupError}=await supabase.from("shift_groups").insert({team_id:teamId,shift_name:shiftGroupName.trim(),shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,team_lead_id:leaderId,created_by:profile.id}).select("*").single();
    if(groupError)throw groupError;
    const assignments=[leaderId,...members].map(employee_id=>({employee_id,shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,created_by:profile.id,shift_group_id:group.id}));
-   const {error:insertError}=await supabase.from("shifts").insert(assignments);
+   const {error:insertError}=await supabase.from("shifts").upsert(assignments,{onConflict:"employee_id,shift_date"});
    if(insertError){await supabase.from("shift_groups").delete().eq("id",group.id);throw insertError;}
    Alert.alert("Shift group created",shiftGroupName+" assigned to "+assignments.length+" people.");
    setSelectedShiftPeople([]);setShiftGroupName("Shift "+(teamShifts.length+2));await loadTeamShifts(teamId);
