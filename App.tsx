@@ -156,10 +156,10 @@ export default function App(){
   <View style={s.card}><Text style={s.heading}>Create a team</Text><TextInput style={s.input} placeholder="Example: Sales Team" value={teamName} onChangeText={setTeamName}/>{button("Create team",createTeam)}</View>
   <View style={s.card}><Text style={s.heading}>Select a team</Text>{teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>setSelectedTeam(t.id)}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>)}</View>
   <View style={s.card}><Text style={s.heading}>Add employee or Team Leader</Text><Text style={s.note}>Create a login account and add it directly to the selected team.</Text>
-  <TextInput style={s.input} placeholder="Full name" value={newName} onChangeText={setNewName}/>
-  <TextInput style={s.input} placeholder="Work email (login ID)" autoCapitalize="none" keyboardType="email-address" value={newEmail} onChangeText={setNewEmail}/>
-  <TextInput style={s.input} placeholder="Employee ID / code (optional)" value={newCode} onChangeText={setNewCode}/>
-  <TextInput style={s.input} placeholder="Temporary password (min. 8 characters)" secureTextEntry value={newPassword} onChangeText={setNewPassword}/>
+  <Text style={s.label}>Full name</Text><TextInput style={s.input} placeholder="Enter full name" value={newName} onChangeText={setNewName}/>
+  <Text style={s.label}>Work email (login ID)</Text><TextInput style={s.input} placeholder="name@company.com" autoCapitalize="none" keyboardType="email-address" value={newEmail} onChangeText={setNewEmail}/>
+  <Text style={s.label}>Employee ID / code (optional)</Text><TextInput style={s.input} placeholder="EMP001 or TL001" value={newCode} onChangeText={setNewCode}/>
+  <Text style={s.label}>Temporary password (minimum 8 characters)</Text><TextInput style={s.input} placeholder="Enter temporary password" secureTextEntry value={newPassword} onChangeText={setNewPassword}/>
   <View style={s.nav}>{button("EMPLOYEE",()=>setNewRole("employee"),newRole!=="employee")}{button("TEAM LEADER",()=>setNewRole("team_lead"),newRole!=="team_lead")}</View>
   <Text style={s.note}>Selected role: {newRole==="team_lead"?"Team Leader":"Employee"} • Destination: {selectedTeamData?.name||"Select a team above"}</Text>
   {button("Create account and add to team",createAccount,!selectedTeam)}
