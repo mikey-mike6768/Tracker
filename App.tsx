@@ -119,7 +119,7 @@ export default function App(){
  async function assignShift(){
   const teamId=profile?.role==="manager"?selectedTeam:profile?.team_id;
   if(!supabase||!profile||!teamId||!selectedShiftPerson){Alert.alert("Select employee","Choose a team member first.");return;}
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)||!/^\\d{2}:\\d{2}$/.test(shiftStart)||!/^\\d{2}:\\d{2}$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)||!/^\d{2}:\d{2}$/.test(shiftStart)||!/^\d{2}:\d{2}$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
   if(shiftEnd<=shiftStart){Alert.alert("Invalid shift time","End time must be later than start time on the same day.");return;}
   setBusy(true);
   const {error}=await supabase.from("shifts").insert({employee_id:selectedShiftPerson,shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,created_by:profile.id});
