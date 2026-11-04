@@ -20,7 +20,7 @@ export default function App(){
  const [people,setPeople]=useState<Profile[]>([]);const [teamName,setTeamName]=useState("");
  const [selectedTeam,setSelectedTeam]=useState("");const [selectedPerson,setSelectedPerson]=useState("");
  const [newName,setNewName]=useState("");const [newEmail,setNewEmail]=useState("");const [newCode,setNewCode]=useState("");const [newPassword,setNewPassword]=useState("");const [newRole,setNewRole]=useState<"employee"|"team_lead">("employee");
- const [todayCount,setTodayCount]=useState(0);
+ const [todayCount,setTodayCount]=useState(0);\n const [shiftDate,setShiftDate]=useState(new Date().toLocaleDateString("en-CA"));const [shiftStart,setShiftStart]=useState("09:00");const [shiftEnd,setShiftEnd]=useState("18:00");const [shiftLocation,setShiftLocation]=useState("");const [selectedShiftPerson,setSelectedShiftPerson]=useState("");const [teamShifts,setTeamShifts]=useState<any[]>([]);
 
  useEffect(()=>{(async()=>{if(!supabase)return;const {data}=await supabase.auth.getSession();if(data.session)await loadProfile(data.session.user.id);})();},[]);
  async function loadProfile(id:string){
@@ -108,6 +108,23 @@ export default function App(){
   }
   Alert.alert("Updated",person.full_name+" assigned to "+(kind==="team_lead"?"lead":"")+" team.");await loadAdminData(profile);setBusy(false);
  }
+ async function loadTeamShifts(teamId:string){
+  if(!supabase||!teamId){setTeamShifts([]);return;}
+  const ids=people.filter(p=>p.team_id===teamId&&p.active).map(p=>p.id);
+  if(!ids.length){setTeamShifts([]);return;}
+  const {data,error}=await supabase.from("shifts").select("*").in("employee_id",ids).order("shift_date",{ascending:true});
+  if(error)Alert.alert("Could not load shifts",error.message);else setTeamShifts(data||[]);
+ }
+ async function assignShift(){
+  const teamId=profile?.role==="manager"?selectedTeam:profile?.team_id;
+  if(!supabase||!profile||!teamId||!selectedShiftPerson){Alert.alert("Select employee","Choose a team member first.");return;}
+  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(shiftDate)||!/^\\d{2}:\\d{2}$/.test(shiftStart)||!/^\\d{2}:\\d{2}$/.test(shiftEnd)){Alert.alert("Invalid date or time","Use date YYYY-MM-DD and time HH:MM (24-hour format).");return;}
+  if(shiftEnd<=shiftStart){Alert.alert("Invalid shift time","End time must be later than start time on the same day.");return;}
+  setBusy(true);
+  const {error}=await supabase.from("shifts").insert({employee_id:selectedShiftPerson,shift_date:shiftDate,start_time:shiftStart,end_time:shiftEnd,work_location_name:shiftLocation.trim()||null,created_by:profile.id});
+  if(error)Alert.alert("Shift assignment failed",error.message);else{Alert.alert("Shift assigned","The team member can now see and acknowledge this shift.");await loadTeamShifts(teamId);}
+  setBusy(false);
+ }
  async function signOut(){await supabase?.auth.signOut();setProfile(null);setRows([]);setShift(null);setPage("home");}
  const button=(label:string,fn:()=>void,secondary=false)=><TouchableOpacity style={[s.btn,secondary&&s.secondary,busy&&{opacity:.55}]} onPress={fn} disabled={busy}><Text style={[s.btnText,secondary&&s.secondaryText]}>{busy?"PLEASE WAIT":label}</Text></TouchableOpacity>;
  const selectedTeamData=teams.find(t=>t.id===selectedTeam);
@@ -122,7 +139,19 @@ export default function App(){
   {page==="home"&&<><View style={s.card}><Text style={s.heading}>{profile.role==="manager"?"Manager overview":profile.role==="team_lead"?"Team Leader overview":"Today's shift"}</Text>{profile.role==="manager"?<><Text style={s.metric}>{activeEmployees} / 25</Text><Text style={s.note}>Active employees</Text><Text style={s.metric}>{activeLeads} / 5</Text><Text style={s.note}>Active Team Leaders</Text><Text style={s.body}>{teams.length} teams configured</Text><Text style={s.body}>{todayCount} attendance events recorded today</Text></>:profile.role==="team_lead"?<><Text style={s.metric}>{teamMembers.length}</Text><Text style={s.note}>Active people in your assigned team</Text><Text style={s.body}>Team: {teams.find(t=>t.id===profile.team_id)?.name||"Not assigned"}</Text></>:<><Text style={s.body}>{shift?shift.start_time+" – "+shift.end_time:"No shift assigned"}</Text>{shift&&button("Acknowledge shift",acknowledge)}</>}</View>
   {profile.role!=="manager"&&<View style={s.card}><Text style={s.heading}>Attendance actions</Text><Text style={s.note}>GPS is captured for each event. Login and logout require a camera photo.</Text>{events.map(e=><React.Fragment key={e}>{button(e.replace("_"," ").toUpperCase(),()=>record(e))}</React.Fragment>)}</View>}
   {profile.role!=="manager"&&<View style={s.card}><Text style={s.heading}>Today's activity</Text>{rows.length?rows.map(r=><Text key={r.id} style={s.body}>{r.event_type.toUpperCase()} • {new Date(r.created_at).toLocaleTimeString()}</Text>):<Text style={s.note}>No personal attendance events yet.</Text>}</View>}</>}
-  {page==="team"&&<View style={s.card}><Text style={s.heading}>Your team</Text><Text style={s.body}>{teams.find(t=>t.id===profile.team_id)?.name||"No team assigned"}</Text><Text style={s.note}>Team access is limited by your signed-in team assignment. Operational tools such as approvals, GPS review and team exports are being implemented in later modules.</Text>{teamMembers.map(p=><View key={p.id} style={s.person}><Text style={s.personName}>{p.full_name}</Text><Text style={s.note}>{p.role.replace("_"," ")} {p.employee_code?"• "+p.employee_code:""}</Text></View>)}</View>}
+  {page==="team"&&<><View style={s.card}><Text style={s.heading}>{profile.role==="manager"?"Organisation teams":"Your team"}</Text>
+  {profile.role==="manager"?teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>{setSelectedTeam(t.id);setSelectedShiftPerson("");loadTeamShifts(t.id);}}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>):<Text style={s.body}>{teams.find(t=>t.id===profile.team_id)?.name||"No team assigned"}</Text>}
+  <Text style={s.note}>Team members and shift schedules</Text>
+  {teamMembers.map(p=><TouchableOpacity key={p.id} style={[s.choice,selectedShiftPerson===p.id&&s.choiceActive]} onPress={()=>setSelectedShiftPerson(p.id)}><Text style={s.body}>{selectedShiftPerson===p.id?"✓ ":""}{p.full_name}</Text><Text style={s.note}>{p.role.replace("_"," ")} {p.employee_code?"• "+p.employee_code:""}</Text></TouchableOpacity>)}
+  </View>
+  {(profile.role==="manager"||profile.role==="team_lead")&&<View style={s.card}><Text style={s.heading}>Assign a shift</Text><Text style={s.note}>Select a team member above, then enter their shift details.</Text>
+  <Text style={s.label}>Shift date (YYYY-MM-DD)</Text><TextInput style={s.input} placeholder="2026-11-05" value={shiftDate} onChangeText={setShiftDate}/>
+  <Text style={s.label}>Start time (24-hour HH:MM)</Text><TextInput style={s.input} placeholder="09:00" value={shiftStart} onChangeText={setShiftStart}/>
+  <Text style={s.label}>End time (24-hour HH:MM)</Text><TextInput style={s.input} placeholder="18:00" value={shiftEnd} onChangeText={setShiftEnd}/>
+  <Text style={s.label}>Work location (optional)</Text><TextInput style={s.input} placeholder="Office / branch / site" value={shiftLocation} onChangeText={setShiftLocation}/>
+  {button("Assign shift to selected member",assignShift,!selectedShiftPerson||!(profile.role==="manager"?selectedTeam:profile.team_id))}
+  </View>}
+  <View style={s.card}><Text style={s.heading}>Scheduled shifts</Text>{teamShifts.length?teamShifts.map(sh=><View key={sh.id} style={s.person}><Text style={s.personName}>{people.find(p=>p.id===sh.employee_id)?.full_name||"Team member"}</Text><Text style={s.note}>{sh.shift_date} • {String(sh.start_time).slice(0,5)}–{String(sh.end_time).slice(0,5)}{sh.work_location_name?" • "+sh.work_location_name:""}</Text></View>):<Text style={s.note}>No shifts loaded yet. Select a team to view its schedule.</Text>}</View></>}
   {page==="admin"&&profile.role==="manager"&&<><View style={s.card}><Text style={s.heading}>Organisation capacity</Text><Text style={s.metric}>{activeEmployees} / 25</Text><Text style={s.note}>Active employees</Text><Text style={s.metric}>{activeLeads} / 5</Text><Text style={s.note}>Active Team Leaders</Text><Text style={s.body}>{teams.length} / 5 teams created</Text></View>
   <View style={s.card}><Text style={s.heading}>Create a team</Text><TextInput style={s.input} placeholder="Example: Sales Team" value={teamName} onChangeText={setTeamName}/>{button("Create team",createTeam)}</View>
   <View style={s.card}><Text style={s.heading}>Select a team</Text>{teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>setSelectedTeam(t.id)}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>)}</View>
@@ -140,4 +169,4 @@ export default function App(){
   {button("Sign out",signOut,true)}
  </ScrollView></SafeAreaView>;
 }
-const s=StyleSheet.create({page:{flex:1,backgroundColor:"#F2F5FA",padding:16},header:{backgroundColor:"#14233B",padding:24,borderRadius:18,marginBottom:14},logo:{fontSize:30,fontWeight:"800",color:"#fff"},sub:{fontSize:12,color:"#D1DCEB",marginTop:6},nav:{flexDirection:"row",gap:7,marginBottom:12},card:{backgroundColor:"#fff",padding:16,borderRadius:16,marginBottom:14},heading:{fontSize:19,fontWeight:"700",color:"#17263D",marginBottom:10},body:{fontSize:15,color:"#34445C",marginVertical:5},metric:{fontSize:26,fontWeight:"800",color:"#2468D2",marginTop:8},input:{borderWidth:1,borderColor:"#D7DFE9",borderRadius:10,padding:13,marginVertical:6},btn:{backgroundColor:"#2468D2",padding:13,borderRadius:11,alignItems:"center",marginTop:8,flex:1},btnText:{color:"#fff",fontWeight:"700",fontSize:12},secondary:{backgroundColor:"#E7EDF6"},secondaryText:{color:"#24364F"},note:{fontSize:12,color:"#718096",lineHeight:18,marginTop:5},choice:{padding:11,borderWidth:1,borderColor:"#E0E6EF",borderRadius:10,marginTop:8},choiceActive:{borderColor:"#2468D2",backgroundColor:"#EEF4FF"},person:{paddingVertical:10,borderBottomWidth:1,borderBottomColor:"#E8EDF3"},personName:{fontSize:15,fontWeight:"700",color:"#26364D"}});
+const s=StyleSheet.create({page:{flex:1,backgroundColor:"#F2F5FA",padding:16},header:{backgroundColor:"#14233B",padding:24,borderRadius:18,marginBottom:14},logo:{fontSize:30,fontWeight:"800",color:"#fff"},sub:{fontSize:12,color:"#D1DCEB",marginTop:6},nav:{flexDirection:"row",gap:7,marginBottom:12},card:{backgroundColor:"#fff",padding:16,borderRadius:16,marginBottom:14},heading:{fontSize:19,fontWeight:"700",color:"#17263D",marginBottom:10},body:{fontSize:15,color:"#34445C",marginVertical:5},metric:{fontSize:26,fontWeight:"800",color:"#2468D2",marginTop:8},input:{borderWidth:1,borderColor:"#D7DFE9",borderRadius:10,padding:13,marginVertical:6},btn:{backgroundColor:"#2468D2",padding:13,borderRadius:11,alignItems:"center",marginTop:8,flex:1},btnText:{color:"#fff",fontWeight:"700",fontSize:12},secondary:{backgroundColor:"#E7EDF6"},secondaryText:{color:"#24364F"},note:{fontSize:12,color:"#718096",lineHeight:18,marginTop:5},choice:{padding:11,borderWidth:1,borderColor:"#E0E6EF",borderRadius:10,marginTop:8},choiceActive:{borderColor:"#2468D2",backgroundColor:"#EEF4FF"},person:{paddingVertical:10,borderBottomWidth:1,borderBottomColor:"#E8EDF3"},personName:{fontSize:15,fontWeight:"700",color:"#26364D"},label:{fontSize:13,fontWeight:"600",color:"#34445C",marginTop:8}});
