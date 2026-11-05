@@ -10,7 +10,7 @@ const key=process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY||"";
 const supabase=url&&key?createClient(url,key):null;
 const events=["login","break_in","break_out","lunch_in","lunch_out","logout"];
 type Profile={id:string;full_name:string;employee_code?:string|null;role:"manager"|"team_lead"|"employee";team_id:string|null;active:boolean};
-type Team={id:string;name:string;team_lead_id:string|null};
+type Team={id:string;name:string;team_lead_id:string|null;geofence_enabled?:boolean;geofence_latitude?:number|null;geofence_longitude?:number|null;geofence_radius_m?:number};
 
 export default function App(){
  const [email,setEmail]=useState("");const [password,setPassword]=useState("");
@@ -18,7 +18,7 @@ export default function App(){
  const [rows,setRows]=useState<any[]>([]);const [busy,setBusy]=useState(false);
  const [page,setPage]=useState("home");const [teams,setTeams]=useState<Team[]>([]);
  const [people,setPeople]=useState<Profile[]>([]);const [teamName,setTeamName]=useState("");
- const [selectedTeam,setSelectedTeam]=useState("");const [selectedPerson,setSelectedPerson]=useState("");
+ const [selectedTeam,setSelectedTeam]=useState("");const [geoLat,setGeoLat]=useState("");const [geoLng,setGeoLng]=useState("");const [geoRadius,setGeoRadius]=useState("150");const [geoEnabled,setGeoEnabled]=useState(false);const [selectedPerson,setSelectedPerson]=useState("");
  const [newName,setNewName]=useState("");const [newEmail,setNewEmail]=useState("");const [newCode,setNewCode]=useState("");const [newPassword,setNewPassword]=useState("");const [newRole,setNewRole]=useState<"employee"|"team_lead">("employee");
  const [todayCount,setTodayCount]=useState(0);const [attendanceRows,setAttendanceRows]=useState<any[]>([]);const [announcementRows,setAnnouncementRows]=useState<any[]>([]);const [announcementTitle,setAnnouncementTitle]=useState("");const [announcementBody,setAnnouncementBody]=useState("");
  const [leaveStart,setLeaveStart]=useState(new Date().toLocaleDateString("en-CA"));const [leaveEnd,setLeaveEnd]=useState(new Date().toLocaleDateString("en-CA"));const [leaveType,setLeaveType]=useState("personal");const [leaveReason,setLeaveReason]=useState("");const [leaveReviewNote,setLeaveReviewNote]=useState("");const [leaveRows,setLeaveRows]=useState<any[]>([]);const [editShiftGroupId,setEditShiftGroupId]=useState<string|null>(null);
@@ -43,7 +43,7 @@ export default function App(){
  async function loadAdminData(p:Profile){
   if(!supabase||!p)return;
   const [{data:t,error:te},{data:ps,error:pe}]=await Promise.all([
-   supabase.from("teams").select("id,name,team_lead_id").order("name"),
+   supabase.from("teams").select("id,name,team_lead_id,geofence_enabled,geofence_latitude,geofence_longitude,geofence_radius_m").order("name"),
    supabase.from("profiles").select("id,full_name,employee_code,role,team_id,active").order("full_name")
   ]);
   if(te)Alert.alert("Teams",te.message);else{setTeams(t||[]);if(!selectedTeam&&t?.[0])setSelectedTeam(t[0].id);}
@@ -56,22 +56,32 @@ export default function App(){
   setBusy(true);const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password});
   if(error)Alert.alert("Sign in failed",error.message);else if(data.user)await loadProfile(data.user.id);setBusy(false);
  }
+ function distanceMeters(lat1:number,lon1:number,lat2:number,lon2:number){const rad=(v:number)=>v*Math.PI/180;const dLat=rad(lat2-lat1),dLon=rad(lon2-lon1);const a=Math.sin(dLat/2)**2+Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLon/2)**2;return 6371000*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+ async function loadGeoForTeam(id:string){const t=teams.find(x=>x.id===id);setGeoEnabled(!!t?.geofence_enabled);setGeoLat(t?.geofence_latitude==null?"":String(t.geofence_latitude));setGeoLng(t?.geofence_longitude==null?"":String(t.geofence_longitude));setGeoRadius(String(t?.geofence_radius_m||150));}
+ async function useCurrentGeoCentre(){try{const p=await Location.requestForegroundPermissionsAsync();if(!p.granted)throw new Error("Allow location permission.");const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});setGeoLat(String(pos.coords.latitude));setGeoLng(String(pos.coords.longitude));}catch(e:any){Alert.alert("Could not get location",e.message||String(e));}}
+ async function saveTeamGeofence(){if(!supabase||profile?.role!=="manager"||!selectedTeam)return;const lat=Number(geoLat),lng=Number(geoLng),radius=Number(geoRadius);if(geoEnabled&&(!geoLat.trim()||!geoLng.trim()||!Number.isFinite(lat)||lat < -90||lat>90||!Number.isFinite(lng)||lng < -180||lng>180||!Number.isInteger(radius)||radius<25||radius>5000)){Alert.alert("Invalid geofence","Enter valid coordinates and a whole-number radius from 25 to 5000 metres.");return;}setBusy(true);const {error}=await supabase.from("teams").update({geofence_enabled:geoEnabled,geofence_latitude:geoEnabled?lat:null,geofence_longitude:geoEnabled?lng:null,geofence_radius_m:radius}).eq("id",selectedTeam);if(error)Alert.alert("Save failed",error.message);else{Alert.alert("Saved","Team attendance geofence settings updated.");await loadAdminData(profile);}setBusy(false);}
  async function acknowledge(){if(!supabase||!profile||!shift)return;const {error}=await supabase.from("shift_acknowledgements").upsert({shift_id:shift.id,employee_id:profile.id,acknowledged:true},{onConflict:"shift_id,employee_id"});if(error)Alert.alert("Error",error.message);else Alert.alert("Saved","Shift acknowledged.");}
  async function record(type:string){
   if(!supabase||!profile||busy)return;setBusy(true);let stage="Starting";let photoPath:string|null=null;
   try{
+   stage="Location permission";const permission=await Location.requestForegroundPermissionsAsync();if(!permission.granted)throw new Error("Allow location access, then try again.");
+   stage="Getting GPS";const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
    if(type==="login"||type==="logout"){
-    stage="Camera permission";const perm=await ImagePicker.requestCameraPermissionsAsync();if(!perm.granted){Alert.alert("Camera permission required","Allow camera access, then try again.");return;}
+    const ownTeam=profile.team_id?teams.find(t=>t.id===profile.team_id):null;
+    if(ownTeam?.geofence_enabled){
+     if(ownTeam.geofence_latitude==null||ownTeam.geofence_longitude==null)throw new Error("Your team's geofence is enabled but its centre is not configured. Contact your Manager.");
+     const distance=distanceMeters(pos.coords.latitude,pos.coords.longitude,ownTeam.geofence_latitude,ownTeam.geofence_longitude);
+     if(distance>(ownTeam.geofence_radius_m||150))throw new Error("Outside approved work area. You are approximately "+Math.round(distance)+" m away; allowed radius is "+(ownTeam.geofence_radius_m||150)+" m. Login/logout photo upload is blocked.");
+    }
+    stage="Camera permission";const perm=await ImagePicker.requestCameraPermissionsAsync();if(!perm.granted)throw new Error("Allow camera access, then try again.");
     stage="Taking photo";const photo=await ImagePicker.launchCameraAsync({quality:.7});if(photo.canceled||!photo.assets[0])return;
     stage="Reading photo";const localFile=new File(photo.assets[0].uri);const photoData=await localFile.arrayBuffer();
     photoPath=profile.id+"/"+Date.now()+".jpg";stage="Uploading photo";
     const {error:uploadError}=await supabase.storage.from("attendance-photos").upload(photoPath,photoData,{contentType:"image/jpeg",upsert:false});if(uploadError)throw new Error(uploadError.message);
    }
-   stage="Location permission";const permission=await Location.requestForegroundPermissionsAsync();if(!permission.granted){Alert.alert("Location permission required","Allow location access, then try again.");return;}
-   stage="Getting GPS";const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
    stage="Saving attendance";const {error}=await supabase.from("attendance_events").insert({employee_id:profile.id,event_type:type,latitude:pos.coords.latitude,longitude:pos.coords.longitude,photo_path:photoPath,client_recorded_at:new Date().toISOString()});
    if(error)throw new Error(error.message);Alert.alert("Attendance saved",type.replace("_"," ")+" recorded.");await loadProfile(profile.id);
-  }catch(error:any){Alert.alert("Attendance failed",stage+": "+(error?.message||String(error))+"\n\nCheck your internet connection and permissions.");}
+  }catch(error:any){Alert.alert("Attendance failed",stage+": "+(error?.message||String(error)));}
   finally{setBusy(false);}
  }
  async function createTeam(){
@@ -188,7 +198,8 @@ export default function App(){
   {page==="leave"&&<><View style={s.card}><Text style={s.heading}>Request leave</Text><Text style={s.label}>Start date (YYYY-MM-DD)</Text><TextInput style={s.input} value={leaveStart} onChangeText={setLeaveStart}/><Text style={s.label}>End date (YYYY-MM-DD)</Text><TextInput style={s.input} value={leaveEnd} onChangeText={setLeaveEnd}/><Text style={s.label}>Leave type</Text>{["personal","sick","casual","annual","unpaid"].map(t=><TouchableOpacity key={t} style={[s.choice,leaveType===t&&s.choiceActive]} onPress={()=>setLeaveType(t)}><Text style={s.body}>{t.toUpperCase()}</Text></TouchableOpacity>)}<TextInput style={s.input} value={leaveReason} onChangeText={setLeaveReason} placeholder="Reason (optional)"/>{button("Submit leave request",submitLeave)}</View><View style={s.card}><Text style={s.heading}>Leave requests</Text>{(profile.role==="manager"||profile.role==="team_lead")&&<TextInput style={s.input} value={leaveReviewNote} onChangeText={setLeaveReviewNote} placeholder="Reviewer note (optional)"/>}{leaveRows.map(r=><View key={r.id} style={s.person}><Text style={s.personName}>{people.find(p=>p.id===r.employee_id)?.full_name||"Employee"} • {r.leave_type}</Text><Text style={s.body}>{r.start_date} to {r.end_date}</Text><Text style={s.note}>Status: {r.status.toUpperCase()}{r.reason?" • "+r.reason:""}</Text>{(profile.role==="manager"||profile.role==="team_lead")&&r.status==="pending"&&<View style={s.nav}>{button("APPROVE",()=>reviewLeave(r.id,"approved"))}{button("REJECT",()=>reviewLeave(r.id,"rejected"),true)}</View>}</View>)}{!leaveRows.length&&<Text style={s.note}>No leave requests yet.</Text>}</View></>}
   {page==="admin"&&profile.role==="manager"&&<><View style={s.card}><Text style={s.heading}>Organisation capacity</Text><Text style={s.metric}>{activeEmployees} / 25</Text><Text style={s.note}>Active employees</Text><Text style={s.metric}>{activeLeads} / 5</Text><Text style={s.note}>Active Team Leaders</Text><Text style={s.body}>{teams.length} / 5 teams created</Text></View>
   <View style={s.card}><Text style={s.heading}>Create a team</Text><TextInput style={s.input} placeholder="Example: Sales Team" value={teamName} onChangeText={setTeamName}/>{button("Create team",createTeam)}</View>
-  <View style={s.card}><Text style={s.heading}>Select a team</Text>{teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>setSelectedTeam(t.id)}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>)}</View>
+  <View style={s.card}><Text style={s.heading}>Attendance geofence</Text><Text style={s.note}>Set the approved location and radius for login/logout photo capture for the selected team.</Text><Text style={s.note}>Selected team: {selectedTeamData?.name||"Choose a team above"}</Text><View style={s.nav}>{button(geoEnabled?"GEOFENCE ON":"GEOFENCE OFF",()=>setGeoEnabled(!geoEnabled),!geoEnabled)}{button("USE CURRENT GPS CENTRE",useCurrentGeoCentre)}</View><Text style={s.label}>Centre latitude</Text><TextInput style={s.input} value={geoLat} onChangeText={setGeoLat} keyboardType="numeric" placeholder="e.g. 17.3456"/><Text style={s.label}>Centre longitude</Text><TextInput style={s.input} value={geoLng} onChangeText={setGeoLng} keyboardType="numeric" placeholder="e.g. 78.4567"/><Text style={s.label}>Allowed radius in metres (25–5000)</Text><TextInput style={s.input} value={geoRadius} onChangeText={setGeoRadius} keyboardType="numeric"/>{button("Save team geofence",saveTeamGeofence,!selectedTeam)}</View>
+  <View style={s.card}><Text style={s.heading}>Select a team</Text>{teams.map(t=><TouchableOpacity key={t.id} style={[s.choice,selectedTeam===t.id&&s.choiceActive]} onPress={()=>{setSelectedTeam(t.id);loadGeoForTeam(t.id);}}><Text style={s.body}>{selectedTeam===t.id?"✓ ":""}{t.name}</Text><Text style={s.note}>Leader: {people.find(p=>p.id===t.team_lead_id)?.full_name||"Not assigned"}</Text></TouchableOpacity>)}</View>
   <View style={s.card}><Text style={s.heading}>Add employee or Team Leader</Text><Text style={s.note}>Create a login account and add it directly to the selected team.</Text>
   <Text style={s.label}>Full name</Text><TextInput style={s.input} placeholder="Enter full name" value={newName} onChangeText={setNewName}/>
   <Text style={s.label}>Work email (login ID)</Text><TextInput style={s.input} placeholder="name@company.com" autoCapitalize="none" keyboardType="email-address" value={newEmail} onChangeText={setNewEmail}/>
