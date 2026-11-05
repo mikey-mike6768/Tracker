@@ -62,25 +62,24 @@ export default function App(){
  async function saveTeamGeofence(){if(!supabase||profile?.role!=="manager"||!selectedTeam)return;const lat=Number(geoLat),lng=Number(geoLng),radius=Number(geoRadius);if(geoEnabled&&(!geoLat.trim()||!geoLng.trim()||!Number.isFinite(lat)||lat < -90||lat>90||!Number.isFinite(lng)||lng < -180||lng>180||!Number.isInteger(radius)||radius<25||radius>5000)){Alert.alert("Invalid geofence","Enter valid coordinates and a whole-number radius from 25 to 5000 metres.");return;}setBusy(true);const {error}=await supabase.from("teams").update({geofence_enabled:geoEnabled,geofence_latitude:geoEnabled?lat:null,geofence_longitude:geoEnabled?lng:null,geofence_radius_m:radius}).eq("id",selectedTeam);if(error)Alert.alert("Save failed",error.message);else{Alert.alert("Saved","Team attendance geofence settings updated.");await loadAdminData(profile);}setBusy(false);}
  async function acknowledge(){if(!supabase||!profile||!shift)return;const {error}=await supabase.from("shift_acknowledgements").upsert({shift_id:shift.id,employee_id:profile.id,acknowledged:true},{onConflict:"shift_id,employee_id"});if(error)Alert.alert("Error",error.message);else Alert.alert("Saved","Shift acknowledged.");}
  async function record(type:string){
-  if(!supabase||!profile||busy)return;setBusy(true);let stage="Starting";let photoPath:string|null=null;
+  if(!supabase||!profile||busy)return;setBusy(true);let stage="Starting";
   try{
    stage="Location permission";const permission=await Location.requestForegroundPermissionsAsync();if(!permission.granted)throw new Error("Allow location access, then try again.");
    stage="Getting GPS";const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+   let photoBase64:string|undefined;
    if(type==="login"||type==="logout"){
-    const ownTeam=profile.team_id?teams.find(t=>t.id===profile.team_id):null;
-    if(ownTeam?.geofence_enabled){
-     if(ownTeam.geofence_latitude==null||ownTeam.geofence_longitude==null)throw new Error("Your team's geofence is enabled but its centre is not configured. Contact your Manager.");
-     const distance=distanceMeters(pos.coords.latitude,pos.coords.longitude,ownTeam.geofence_latitude,ownTeam.geofence_longitude);
-     if(distance>(ownTeam.geofence_radius_m||150))throw new Error("Outside approved work area. You are approximately "+Math.round(distance)+" m away; allowed radius is "+(ownTeam.geofence_radius_m||150)+" m. Login/logout photo upload is blocked.");
-    }
     stage="Camera permission";const perm=await ImagePicker.requestCameraPermissionsAsync();if(!perm.granted)throw new Error("Allow camera access, then try again.");
-    stage="Taking photo";const photo=await ImagePicker.launchCameraAsync({quality:.7});if(photo.canceled||!photo.assets[0])return;
-    stage="Reading photo";const localFile=new File(photo.assets[0].uri);const photoData=await localFile.arrayBuffer();
-    photoPath=profile.id+"/"+Date.now()+".jpg";stage="Uploading photo";
-    const {error:uploadError}=await supabase.storage.from("attendance-photos").upload(photoPath,photoData,{contentType:"image/jpeg",upsert:false});if(uploadError)throw new Error(uploadError.message);
+    stage="Taking photo";const photo=await ImagePicker.launchCameraAsync({quality:.65});if(photo.canceled||!photo.assets[0])return;
+    stage="Reading photo";const localFile=new File(photo.assets[0].uri);const buffer=await localFile.arrayBuffer();const bytes=new Uint8Array(buffer);
+    const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";let encoded="";
+    for(let i=0;i<bytes.length;i+=3){const a=bytes[i],hasB=i+1<bytes.length,hasC=i+2<bytes.length,b=hasB?bytes[i+1]:0,c=hasC?bytes[i+2]:0;encoded+=alphabet[a>>2]+alphabet[((a&3)<<4)|(b>>4)]+(hasB?alphabet[((b&15)<<2)|(c>>6)]:"=")+(hasC?alphabet[c&63]:"=");}
+    photoBase64=encoded;
    }
-   stage="Saving attendance";const {error}=await supabase.from("attendance_events").insert({employee_id:profile.id,event_type:type,latitude:pos.coords.latitude,longitude:pos.coords.longitude,photo_path:photoPath,client_recorded_at:new Date().toISOString()});
-   if(error)throw new Error(error.message);Alert.alert("Attendance saved",type.replace("_"," ")+" recorded.");await loadProfile(profile.id);
+   stage="Server GPS and geofence verification";
+   const {data,error}=await supabase.functions.invoke("record-attendance",{body:{event_type:type,latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy_m:pos.coords.accuracy??999,photo_base64:photoBase64}});
+   if(error)throw new Error(error.message||"Attendance verification failed.");
+   if(data?.error)throw new Error(data.error);
+   Alert.alert("Attendance saved",type.replace("_"," ")+ " recorded successfully"+(data.distance_m!=null?" • "+data.distance_m+" m from work centre":"")+".");await loadProfile(profile.id);
   }catch(error:any){Alert.alert("Attendance failed",stage+": "+(error?.message||String(error)));}
   finally{setBusy(false);}
  }
