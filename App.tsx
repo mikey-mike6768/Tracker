@@ -32,9 +32,9 @@ export default function App(){
   const {data,error}=await supabase!.from("profiles").select("*").eq("id",id).single();
   if(error){Alert.alert("Profile error",error.message);return;}
   setProfile(data as Profile);
-  const today=new Date().toLocaleDateString("en-CA");
+  const now=new Date();const today=now.toLocaleDateString("en-CA");const localDayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();const localDayEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).toISOString();
   const {data:s}=await supabase!.from("shifts").select("*").eq("employee_id",id).eq("shift_date",today).maybeSingle();setShift(s);
-  const {data:e}=await supabase!.from("attendance_events").select("*").eq("employee_id",id).gte("created_at",today+"T00:00:00").order("created_at");setRows(e||[]);
+  const {data:e,error:eventsError}=await supabase!.from("attendance_events").select("*").eq("employee_id",id).gte("created_at",localDayStart).lt("created_at",localDayEnd).order("created_at");if(eventsError)Alert.alert("Activity load failed",eventsError.message);setRows(e||[]);
   await loadAdminData(data as Profile);
  }
  async function loadAttendance(){if(!supabase||!profile)return;let q=supabase.from("attendance_events").select("*").order("created_at",{ascending:false}).limit(200);const {data,error}=await q;if(error){Alert.alert("Attendance",error.message);return;}const rowsWithPhotos=await Promise.all((data||[]).map(async (event:any)=>{if(!event.photo_path)return event;const {data:signed}=await supabase!.storage.from("attendance-photos").createSignedUrl(event.photo_path,3600);return {...event,photo_url:signed?.signedUrl||null};}));setAttendanceRows(rowsWithPhotos);}
